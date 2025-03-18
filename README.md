@@ -1,1 +1,11 @@
-# soundness-layer
+# Soundness Layer
+
+Soundness Layer is a decentralized verification layer that provides low latency, high throughput, and cross-chain compatibility for blockchain networks. Built on [Walrus](https://www.walrus.xyz/) for data availability and [Sui](https://sui.io/) for sequencing, it delivers a robust infrastructure for blockchain verification. The network's security is maintained through an innovative restaking protocol.
+
+[Discord](https://discord.gg/F4cGbdqgw8) | [Telegram](https://t.me/SoundnessLabs)
+
+> ⚠️ **Warning**: This is a testnet implementation. Do not use in production. The protocol is still under development and may contain bugs or security vulnerabilities.
+
+## Testnet Registration
+
+We are currently preparing for testnet launch and invite early participants to register their keys. For detailed instructions on key generation and registration, please refer to the [`soundness-cli`](/soundness-cli) documentation.

@@ -2,7 +2,17 @@
 
 A command-line interface tool for interacting with Soundness Layer testnet.
 
+## Testnet Registration
+
+To join the testnet, head to our `testnet-access` channel in [Discord](https://discord.gg/F4cGbdqgw8) and request access using:
+
+```bash
+!access <base64-encoded-public-key>
+```
+
 ## Installation
+
+Install the CLI tool using Cargo:
 
 ```bash
 cargo install --path .
@@ -10,7 +20,7 @@ cargo install --path .
 
 ## Usage
 
-### Generating a Key Pair to join testnet
+### Generating a Key Pair
 
 To generate a new key pair for signing requests:
 
@@ -18,13 +28,12 @@ To generate a new key pair for signing requests:
 soundness-cli generate-key --name my-key
 ```
 
-This will:
-
-1. Generate a new Ed25519 key pair (save your mnemonic in a secure way and keep it for later)
-2. Store the key pair securely in a local `key_store.json` file
+This command will:
+1. Generate a new Ed25519 key pair (save your mnemonic securely for future use)
+2. Store the key pair in a local `key_store.json` file
 3. Display the public key in base64 format
 
-The public key will be displayed in the format:
+The output will look like this:
 
 ```log
 ✅ Generated new key pair 'my-key'
@@ -33,13 +42,11 @@ The public key will be displayed in the format:
 
 ### Listing Key Pairs
 
-To view all stored key pairs:
+To view all stored key pairs and their associated public keys:
 
 ```bash
 soundness-cli list-keys
 ```
-
-This will display all available key pairs and their associated public keys.
 
 ### Sending Proofs
 
@@ -49,4 +56,4 @@ To send a proof and ELF file to the testnet server:
 soundness-cli send --proof-file path/to/proof.proof --elf-file path/to/program.elf --key-name my-key
 ```
 
-The request will be signed using the specified key pair.
+The request will be automatically signed using the specified key pair.
