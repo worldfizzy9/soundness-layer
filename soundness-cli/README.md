@@ -4,7 +4,7 @@ A command-line interface tool for interacting with Soundness Layer testnet.
 
 ## Testnet Registration
 
-To join the testnet, head to our `testnet-access` channel in [Discord](https://discord.gg/F4cGbdqgw8) and request access using:
+To join the testnet, generate your keys and head to our `testnet-access` channel in [Discord](https://discord.gg/F4cGbdqgw8) and request access using:
 
 ```bash
 !access <base64-encoded-public-key>
@@ -29,6 +29,7 @@ soundness-cli generate-key --name my-key
 ```
 
 This command will:
+
 1. Generate a new Ed25519 key pair (save your mnemonic securely for future use)
 2. Store the key pair in a local `key_store.json` file
 3. Display the public key in base64 format
@@ -40,6 +41,14 @@ The output will look like this:
 🔑 Public key: <base64-encoded-public-key>
 ```
 
+### Importing a Key Pair
+
+To import an existing key pair from a mnemonic phrase:
+
+```bash
+soundness-cli import-key --name my-key
+```
+
 ### Listing Key Pairs
 
 To view all stored key pairs and their associated public keys:
@@ -47,6 +56,16 @@ To view all stored key pairs and their associated public keys:
 ```bash
 soundness-cli list-keys
 ```
+
+### Exporting Key Mnemonic
+
+To export the mnemonic phrase for a stored key pair:
+
+```bash
+soundness-cli export-key --name my-key
+```
+
+> ⚠️ **Warning**: Keep your mnemonic phrase secure and never share it with anyone. Anyone with your mnemonic can access your key pair.
 
 ### Sending Proofs
 

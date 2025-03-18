@@ -8,17 +8,18 @@ use bip39;
 use clap::{Parser, Subcommand};
 use ed25519_dalek::{Signer, SigningKey};
 use indicatif::{ProgressBar, ProgressStyle};
+use once_cell::sync::Lazy;
 use pbkdf2::pbkdf2_hmac_array;
 use rand::{rngs::OsRng, RngCore};
 use rpassword::prompt_password;
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::time::Duration;
 use std::sync::Mutex;
-use once_cell::sync::Lazy;
+use std::time::Duration;
+use std::str::FromStr;
 
 const SALT_LENGTH: usize = 32;
 const NONCE_LENGTH: usize = 12;
@@ -49,6 +50,18 @@ enum Commands {
     },
     /// List all saved key pairs
     ListKeys,
+    /// Export mnemonic for a key pair
+    ExportKey {
+        /// Name of the key pair to export
+        #[arg(short, long)]
+        name: String,
+    },
+    /// Import a key pair from a mnemonic phrase
+    ImportKey {
+        /// Name for the imported key pair
+        #[arg(short, long)]
+        name: String,
+    },
     /// Send a proof and ELF file to the server
     Send {
         /// Path to the proof file
@@ -188,10 +201,9 @@ fn generate_key_pair(name: &str) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to generate mnemonic: {}", e))?;
     let mnemonic_string = mnemonic.to_string();
 
-    println!("\n📝 IMPORTANT: Save this mnemonic phrase securely!");
+    println!("\n📝 IMPORTANT: Save this mnemonic phrase securely for your testnet participation!");
+    println!("⚠️  WARNING: This is the only time you'll see this mnemonic! You'll need it to recover your secret key if the key store is lost!\n");
     println!("{}", mnemonic_string);
-    println!("⚠️  WARNING: This is the only time you'll see this mnemonic!");
-    println!("⚠️  WARNING: You'll need it to recover your secret key if the key store is lost!");
 
     // Get password for secret key encryption
     let password = prompt_password("\nEnter password for secret key: ")
@@ -246,7 +258,7 @@ fn calculate_key_store_hash(key_store: &KeyStore) -> String {
 fn sign_payload(payload: &[u8], key_name: &str) -> Result<Vec<u8>> {
     let key_store = load_key_store()?;
     let key_store_hash = calculate_key_store_hash(&key_store);
-    
+
     let key_pair = key_store
         .keys
         .get(key_name)
@@ -260,7 +272,7 @@ fn sign_payload(payload: &[u8], key_name: &str) -> Result<Vec<u8>> {
     // Create a new scope for the password guard to ensure it's dropped properly
     let password = {
         let mut password_guard = PASSWORD_CACHE.lock().unwrap();
-        
+
         if let Some((stored_password, stored_hash)) = password_guard.as_ref() {
             // Check if key store has changed
             if stored_hash != &key_store_hash {
@@ -273,12 +285,12 @@ fn sign_payload(payload: &[u8], key_name: &str) -> Result<Vec<u8>> {
             // If no password is stored, prompt for it
             let new_password = prompt_password("Enter password to decrypt the secret key: ")
                 .map_err(|e| anyhow::anyhow!("Failed to read password: {}", e))?;
-            
+
             // Try to decrypt with the password to verify it's correct
             if let Err(e) = decrypt_secret_key(encrypted_secret, &new_password) {
                 anyhow::bail!("Invalid password: {}", e);
             }
-            
+
             // Store the password and key store hash
             *password_guard = Some((new_password.clone(), key_store_hash));
             new_password
@@ -287,16 +299,16 @@ fn sign_payload(payload: &[u8], key_name: &str) -> Result<Vec<u8>> {
 
     // Only show the progress bar after we have the password
     let pb = create_progress_bar("✍️  Signing payload...");
-    
+
     let secret_key_bytes = decrypt_secret_key(encrypted_secret, &password)?;
-    let secret_key_array: [u8; 32] = secret_key_bytes
+    let secret_key_array: [u8; 32] = secret_key_bytes.clone()
         .try_into()
         .map_err(|_| anyhow::anyhow!("Invalid secret key length"))?;
-    
+
     let signing_key = SigningKey::from_bytes(&secret_key_array);
     let signature = signing_key.sign(payload);
     pb.finish_with_message("✍️  Payload signed successfully");
-    
+
     Ok(signature.to_bytes().to_vec())
 }
 
@@ -307,6 +319,100 @@ fn get_public_key(key_name: &str) -> Result<Vec<u8>> {
         .get(key_name)
         .ok_or_else(|| anyhow::anyhow!("Key pair '{}' not found", key_name))?;
     Ok(key_pair.public_key.clone())
+}
+
+fn export_key(name: &str) -> Result<()> {
+    let key_store = load_key_store()?;
+    let key_pair = key_store
+        .keys
+        .get(name)
+        .ok_or_else(|| anyhow::anyhow!("Key pair '{}' not found", name))?;
+
+    let encrypted_secret = key_pair
+        .encrypted_secret_key
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Secret key not found for '{}'", name))?;
+
+    // Prompt for password
+    let password = prompt_password("Enter password to decrypt the secret key: ")
+        .map_err(|e| anyhow::anyhow!("Failed to read password: {}", e))?;
+
+    // Decrypt the secret key with better error handling
+    let secret_key_bytes = match decrypt_secret_key(encrypted_secret, &password) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            println!("\n❌ Error: Invalid password. Please try again with the correct password.");
+            return Ok(());
+        }
+    };
+
+    // Generate mnemonic from secret key
+    let mnemonic = bip39::Mnemonic::from_entropy(&secret_key_bytes)
+        .map_err(|e| anyhow::anyhow!("Failed to generate mnemonic: {}", e))?;
+    let mnemonic_string = mnemonic.to_string();
+
+    println!("\n🔑 Mnemonic for key pair '{}':\n", name);
+    println!("{}", mnemonic_string);
+    println!("\n⚠️  WARNING: Keep this mnemonic secure and never share it with anyone!");
+    Ok(())
+}
+
+fn import_key(name: &str) -> Result<()> {
+    let mut key_store = load_key_store()?;
+
+    if key_store.keys.contains_key(name) {
+        anyhow::bail!("Key pair with name '{}' already exists", name);
+    }
+
+    // Prompt for mnemonic
+    println!("\nEnter your mnemonic phrase (12 or 24 words):");
+    let mut mnemonic_input = String::new();
+    std::io::stdin().read_line(&mut mnemonic_input)?;
+    let mnemonic_input = mnemonic_input.trim();
+
+    // Parse mnemonic
+    let mnemonic = bip39::Mnemonic::from_str(mnemonic_input)
+        .map_err(|e| anyhow::anyhow!("Invalid mnemonic phrase: {}", e))?;
+
+    // Convert mnemonic to secret key
+    let secret_key_bytes = mnemonic.to_entropy();
+    let secret_key_array: [u8; 32] = secret_key_bytes.clone()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Invalid secret key length"))?;
+
+    // Create signing key and get public key
+    let signing_key = SigningKey::from_bytes(&secret_key_array);
+    let verifying_key = signing_key.verifying_key();
+    let public_key_bytes = verifying_key.to_bytes();
+    let public_key_string = BASE64.encode(&public_key_bytes);
+
+    // Get password for secret key encryption
+    let password = prompt_password("\nEnter password to encrypt the secret key: ")
+        .map_err(|e| anyhow::anyhow!("Failed to read password: {}", e))?;
+    let confirm_password = prompt_password("Confirm password: ")
+        .map_err(|e| anyhow::anyhow!("Failed to read password: {}", e))?;
+
+    if password != confirm_password {
+        anyhow::bail!("Passwords do not match");
+    }
+
+    // Encrypt the secret key
+    let encrypted_secret = encrypt_secret_key(&secret_key_bytes, &password)?;
+
+    // Save the key pair
+    key_store.keys.insert(
+        name.to_string(),
+        KeyPair {
+            public_key: public_key_bytes.to_vec(),
+            public_key_string: public_key_string.clone(),
+            encrypted_secret_key: Some(encrypted_secret),
+        },
+    );
+
+    save_key_store(&key_store)?;
+    println!("\n✅ Successfully imported key pair '{}'", name);
+    println!("🔑 Public key: {}", public_key_string);
+    Ok(())
 }
 
 #[tokio::main]
@@ -321,6 +427,12 @@ async fn main() -> Result<()> {
         Commands::ListKeys => {
             list_keys()?;
         }
+        Commands::ExportKey { name } => {
+            export_key(&name)?;
+        }
+        Commands::ImportKey { name } => {
+            import_key(&name)?;
+        }
         Commands::Send {
             proof_file,
             elf_file,
@@ -329,7 +441,7 @@ async fn main() -> Result<()> {
         } => {
             // Create progress bars
             let reading_pb = create_progress_bar("📂 Reading files...");
-            
+
             // Read the files as binary data
             let proof_content = fs::read(&proof_file)
                 .with_context(|| format!("Failed to read proof file: {}", proof_file.display()))?;
